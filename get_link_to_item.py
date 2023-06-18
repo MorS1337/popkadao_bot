@@ -2,7 +2,6 @@ import requests
 import re
 
 def get_link_to_item(url: str) -> str:
-    url = "https://m.tb.cn/h.Uz4eBx7?tk=es1hdJ0J5VD"
 
     response = requests.get(url)
     html_code = response.text
