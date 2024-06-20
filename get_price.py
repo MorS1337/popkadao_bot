@@ -1,6 +1,23 @@
 import requests
 import re
-from bs4 import BeautifulSoup
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+
+from utils import Item
+
+def get_shipping_info(driver: webdriver) -> str:
+    element = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CSS_SELECTOR, "[class^='rax-view-v2 priceMod--priceTagContainer']"))).text
+    if '包邮' in element:
+        return 'Free'
+    return 'Paid'
+
+def cut_brand_name(name: str) -> str:
+    return name.split('/')[0]
+
+def cut_image_url(url: str) -> str:
+    return url[:-6]
 
 def get_link_to_item(url: str) -> str:
     '''Из-за переадресации невозможно совершить парсинг,
@@ -8,7 +25,7 @@ def get_link_to_item(url: str) -> str:
        Функция берёт обычную ссылку и возвращает пригодную
        для парсинга ссылку'''
        
-    #Делаем запрос get запрос и получаем html код
+    # Делаем запрос get запрос и получаем html код
     response = requests.get(url)
     html_code = response.text
 
@@ -20,25 +37,63 @@ def get_link_to_item(url: str) -> str:
         return extracted_urls[0]
     else:
         return None
-    
-# def get_item_price(url: str) -> int:
-#     if url is not None:
-#         with requests.Session() as session:
-#             headers = {
-#                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36',
-#                 'Accept-Language': 'ru-RU,ru;q=0.5',
-#                 'Accept-Encoding': 'gzip, deflate, br',
-#                 'Content-Type': 'application/x-www-form-urlencoded',
-#                 'Cookie': '_m_h5_tk=39b16e41e561127260078bb4e4e5be19_1686652185104; _m_h5_tk_enc=0b348cc71ec2395be5147101f43ab717; _samesite_flag_=true; cookie2=1ccf9803293ce802a20e647fb4e6b8fb; t=de6749f523932bb9f8108bc15e707268; _tb_token_=033e70e3b7be; isg=BKCgHXAh0GuWD2yLp-_zpM-Oca5yqYRzWFH73hqxbLtOFUA_wrlUA3YkraWVpTxL',
-#                 'Origin': 'https://h5.m.goofish.com',
-#                 'Referer': 'https://h5.m.goofish.com',
-#                 'Sec-Ch-Ua': "Not.A/Brand;v=8 Chromium;v=114, Brave;v=114"
-#             }
-#             session.headers.update(headers)
-            
-#             response = session.get(url)
-#             html_code = response.content
 
-#             soup = BeautifulSoup(html_code, 'lxml')
-#             item_price = soup.find('span', class_="rax-text-v2 priceMod--soldPrice--20BWwRm")
-#             print(soup.prettify())
+def get_info(url: str) -> Item:
+    # options
+    options = webdriver.ChromeOptions()
+
+    # disable webdriver
+    options.add_argument("--disable-blink-features=AutomationControlled")
+
+    # user-agent
+    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
+
+    driver = webdriver.Chrome(options=options)
+    
+    driver.get(url)
+    
+    # Wait for the iframe to be available and switch to it
+    iframe = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.TAG_NAME, "iframe")))
+    driver.switch_to.frame(iframe)
+    
+    try:
+        price = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CSS_SELECTOR, "[class^='rax-view-v2 priceMod--priceTextWrap']"))).text
+    except Exception as ex:
+        print('Error finding price: ', ex)
+        
+    try:
+        brand_name = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CSS_SELECTOR, "[class^='rax-text-v2 spvListMod--valueName']"))).text
+    except Exception as ex:
+        brand_name = None
+        print('Error finding brand name: ', ex)
+    
+    try: 
+        description = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CSS_SELECTOR, "[class^='rax-text-v2 detailDesc--descText']"))).text
+    except Exception as ex:
+        print('Error finding description: ', ex)
+        
+    try:
+        image_url = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CSS_SELECTOR, "[class^='rax-view-v2 imageListMod--imageWrap'] img"))).get_attribute('src')
+    except Exception as ex:
+        image_url = None
+        print('Error finding image URL: ', ex)
+        
+    try:
+        shipping_price = get_shipping_info(driver)
+    except Exception as ex:
+        shipping_price = None
+        print('Error finding shipping price: ', ex)
+    
+    driver.quit()
+    
+    return Item(
+        description=description,
+        price=price[2:],
+        image_url=cut_image_url(image_url),
+        brand_name=cut_brand_name(brand_name),
+        shipping_price=shipping_price
+    )
+
+if __name__ == '__main__':
+    url = get_link_to_item("https://m.tb.cn/h.gelpGFW?tk=V316WDDoIyw")
+    print(get_info(url))
